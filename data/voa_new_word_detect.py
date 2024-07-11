@@ -18,6 +18,7 @@ if not os.path.exists('./wordtool.pkl'):
 
     w = WordTool(content)
     pkl.dump(w, open('./wordtool.pkl', 'wb'))
+    print('``')
 else:
     w = pkl.load(open('./wordtool.pkl', 'rb'))
 # Step 1
