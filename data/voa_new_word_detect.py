@@ -17,8 +17,9 @@ if not os.path.exists('./wordtool.pkl'):
         content.append(text)
 
     w = WordTool(content)
+    pkl.dump(w, open('./wordtool.pkl', 'wb'))
 else:
-    w = pkl.load(open('./wordtool.pkl', 'r', encoding='utf-8'))
+    w = pkl.load(open('./wordtool.pkl', 'rb'))
 # Step 1
 # 输入最大词长d，生成所有可能的单词组合。结果见w.pool
 w.setPool(d=5)
