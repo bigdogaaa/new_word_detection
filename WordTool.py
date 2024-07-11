@@ -7,7 +7,11 @@ import time
 from math import log
 from tqdm import tqdm
 from dict import load_dict
+import os
+from utils.convert_tw2zh import convert_tw2zh_opencc
 
+
+project_dir = os.path.dirname(__file__)
 
 
 class WordTool():
@@ -20,23 +24,29 @@ class WordTool():
     returns:
         WordTool
     """
-    def __init__(self,article):
+    def __init__(self,article, filter_normal_word=True, t2s=True):
         # 确保article为list类型
         if type(article)==type("hello world"):
             self.article=[article]
         else:
             self.article=article
-            
+        self.t2s = t2s
         self.totalCharCount=self.getWordCount() # 文章总汉字个数
         print("文章加载成功，一共%s段文字，合计%s个汉字。"%(len(article),self.totalCharCount))
-        
+        self.filter_normal_word = filter_normal_word
+        if self.filter_normal_word:
+            self.normal_word_set = set()
+            for line in open(project_dir+'/static/现代汉语常用词表.txt', 'r', encoding='utf-8'):
+                parts = line.split('\t')
+                self.normal_word_set.add(parts[0])
+
         self.pool=set() # 根据文章生成的所有单词组合
         self.candidates=dict() # 从pool中选取出现频数较多的一部分单词
-        
+
         self.punc="""\n--——，。？！：；“”"'‘’,.，。、【 】 “”：；（）《》‘’{}？！⑦()、%^>℃：.”“^-——=&#@￥"""
         self.number="""0123456789"""
         self.letter="".join(list(string.ascii_lowercase)+list(string.ascii_uppercase))
-        
+
     def getWordCount(self,word=None):
         """
         统计单词/字符出现的次数，如果不提供参数，
@@ -48,18 +58,18 @@ class WordTool():
             int
         """
         count=0
-        
+
         if word is None: # 统计文章总汉字个数
             for para in self.article:
                 for char in para:
                     if '\u4e00'<= char <= '\u9fa5' and char not in "0123456789 ":
                         count+=1
-        else: # 统计word出现次数         
+        else: # 统计word出现次数
             for para in self.article:
                 count+=para.count(word)
 
         return count
-    
+
     def getCandidates(self,sentence,d):
         """
         从句子中找出所有可能的单词组合
@@ -81,7 +91,12 @@ class WordTool():
                 start=w[0]+i
                 end=w[1]+i
                 word=sentence[start:end]
-
+                if self.t2s:
+                    word = convert_tw2zh_opencc(word)
+                # 检测word是否是常规词（出现在《现代汉语常用词表》中的词）
+                if self.filter_normal_word:
+                    if word in self.normal_word_set:
+                        continue
                 # 检测word是否都是汉字，
                 words.append(word)
                 for char in word:
@@ -94,7 +109,7 @@ class WordTool():
         result.update(set(words))
 
         return result
-    
+
     def setPool(self,d):
         """
         根据最大词长d，生成所有可能单词组合
@@ -109,7 +124,7 @@ class WordTool():
 
         time.sleep(0.5) # 这句没啥用，为了美观
         print("生成%s种可能单词组合"%(len(self.pool)))
-        
+
     def countPool(self):
         """
         为pool中的单词统计词频
@@ -121,7 +136,7 @@ class WordTool():
         for word in tqdm(self.pool):
             temp[word]=self.getWordCount(word)
         self.pool=temp
-    
+
     def setCandidates(self,min_freq):
         """
         初步筛选候选词
@@ -138,7 +153,7 @@ class WordTool():
 
         time.sleep(0.5) # 这句没啥用，为了美观
         print("共筛选出%s个频数大于%s的单词"%(len(self.candidates),min_freq))
-        
+
     def getNeighboor(self,word):
         """
         统计单词左邻字和右邻字的出现次数
@@ -171,26 +186,26 @@ class WordTool():
                 else: # 有结果，在句子中间
                     char_l=string[index-1]
                     char_r=string[index+len(word)]
-                
+
                 # 如果左右邻字是标点符号，标记出来
                 if char_l in self.punc:
                     char_l="<BOS>"
                 if char_r in self.punc:
                     char_r="<EOS>"
-                    
+
                 # 如果左右邻字是字母，标记出来
                 if char_l in self.letter:
                     char_l="<LETTER>"
                 if char_r in self.letter:
                     char_r="<LETTER>"
-                    
+
                 # 如果左右邻字是数字，标记出来
                 if char_l in self.number:
                     char_l="<NUM>"
                 if char_r in self.number:
                     char_r="<NUM>"
-                
-                
+
+
                 # 将左邻字、右邻字更新到neightboor中
                 if char_l in neightboor_l:
                     neightboor_l[char_l]+=1
@@ -203,7 +218,7 @@ class WordTool():
                 start=index+1
 
         return neightboor_l,neightboor_r
-    
+
     def getEntropy(self,neighboor):
         """
         计算平均信息熵
@@ -218,7 +233,7 @@ class WordTool():
         result=sum(-log(value/count)*(value/count) for _,value in neighboor.items())
 
         return result
-        
+
     def setCandidatesEntropy(self):
         """
         获取candidates的左右邻字，并更新信息熵
@@ -228,18 +243,18 @@ class WordTool():
         """
         for word,_ in tqdm(self.candidates.items()):
             l,r=self.getNeighboor(word)
-            
+
             self.candidates[word]["neighboor_left"]=l
             self.candidates[word]["neighboor_right"]=r
             self.candidates[word]["entropy_left"]=self.getEntropy(l)
             self.candidates[word]["entropy_right"]=self.getEntropy(r)
-    
+
     def p(self,word):
         """
         计算字或者词在原文中出现的概率
         """
         return self.getWordCount(word)/self.totalCharCount
-    
+
     def getCondensity(self,word):
         """
         计算单词的凝聚度
@@ -260,11 +275,11 @@ class WordTool():
             condensity.append(self.p(word)/(self.p(pattern[0])*self.p(pattern[1])))
 
         return min(condensity)
-    
+
     def setCondensity(self):
         for word,_ in tqdm(self.candidates.items()):
             self.candidates[word]['condensity']=self.getCondensity(word)
-    
+
     def display(self,
                 sort="freq",
                 min_freq=0,
@@ -309,14 +324,15 @@ class WordTool():
         else:
             data.sort(key=lambda x:x[4],reverse=True)
 
-        d = {'频数':[i[1] for i in data],
+        d = {'词汇': [i[0] for i in data],
+             '频数':[i[1] for i in data],
              '左信息熵':[i[2] for i in data],
              '右信息熵':[i[3] for i in data],
-             '右右信息熵':[i[2]+i[3] for i in data],
+             '左右信息熵':[i[2]+i[3] for i in data],
              '凝聚度':[i[4] for i in data]
             }
         pd.set_option('display.max_rows', None)
-        df=pd.DataFrame(d,index=[i[0] for i in data])
+        df=pd.DataFrame(d)
         self.data=data
 
         return df
@@ -335,7 +351,7 @@ class WordTool():
         result=set()
         with open(path,encoding="utf-8") as f:
             content=f.readlines()
-        
+
         for para in content:
             word_list=para.split(seg)
             temp=[]
@@ -350,7 +366,7 @@ class WordTool():
                         temp.pop()
                         break
             result.update(temp)
-            
+
         print("共检索到%s个单词"%(len(result)))
         return result
 
